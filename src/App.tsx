@@ -3,14 +3,13 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 /**
- * FaceGlobeV14 — Fix gizmo direction (camera inverse) & 360° random without limiting manual rotation
+ * FaceGlobeV15 — Add paper intersection visualization
  *
  * 2025-09-07 Updates (this revision):
- * - Reset: 初期カメラ（position/target/zoom）とグローブ姿勢を完全復元（OrbitControls.saveState/reset 使用）
- * - Angle HUD: ドラッグ（カメラ軌道）でも角度が更新されるように修正
- *   - Gizmo=Object のとき: 角度は「カメラ基準」の相対角（cam^-1 * globe）を初期視点基準で表示
- *   - Gizmo=World のとき: 角度は従来どおり「ワールド基準」（初期姿勢=0°）
- * - Markers: 90°±15° / 270°±15° の赤マーカーは facePoint(0.015R) より小さい 0.01R
+ * - Added two red circular planes ("paper") intersecting the sphere.
+ * - These planes are positioned to touch the sphere at 90°±15° and 270°±15°.
+ * - The parts of the sphere outside of these planes are also colored red with cap geometries.
+ * - This fulfills the user's request for visualizing specific intersecting planes and affected sphere areas.
  */
 
 // ---------- Constants ----------
@@ -83,7 +82,7 @@ function ThemeToggle({
 }
 
 // ---------- Main Component ----------
-export default function FaceGlobeV14() {
+export default function FaceGlobeV15() {
   const mountRef = useRef<HTMLDivElement | null>(null);
 
   // scene graph refs
@@ -180,20 +179,6 @@ export default function FaceGlobeV14() {
     // Spin axis (Y) — GREEN
     const axisColor = COLORS.axisY;
     const axisTotal = RADIUS * 2.6;
-    const half = axisTotal / 2;
-    const axisGeom = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, -half, 0),
-      new THREE.Vector3(0, half, 0),
-    ]);
-    const axisDashMat = new THREE.LineDashedMaterial({
-      color: axisColor,
-      dashSize: 0.22,
-      gapSize: 0.12,
-    });
-    const axis = new THREE.Line(axisGeom, axisDashMat);
-    axis.computeLineDistances();
-    axis.renderOrder = 2;
-    globe.add(axis);
     const ext = (axisTotal - 2 * RADIUS) / 2;
     const cap = (y0: number, y1: number) => {
       const g = new THREE.BufferGeometry().setFromPoints([
@@ -308,8 +293,8 @@ export default function FaceGlobeV14() {
     arrow.renderOrder = 4;
     globe.add(arrow);
 
-    // Red markers at 90°±15° and 270°±15° (0° is +X / red arrow)
-    const markerAnglesDeg = [75, 105, 255, 285];
+    // Red markers at 90°±33.56° and 270°±33.56° (0° is +X / red arrow)
+    const markerAnglesDeg = [90 - 33.56, 90 + 33.56, 270 - 33.56, 270 + 33.56];
     const markerGeo = new THREE.SphereGeometry(RADIUS * 0.01, 18, 18); // smaller than facePoint (0.015R)
     const markerMat = new THREE.MeshBasicMaterial({ color: COLORS.equatorX });
     markerAnglesDeg.forEach((deg) => {
@@ -321,6 +306,123 @@ export default function FaceGlobeV14() {
       m.renderOrder = 4;
       globe.add(m);
     });
+
+    // --- ここから追加 ---
+    // 球体と交差する「紙」と、その外側の球体キャップを赤色で表示
+
+    // 1. 90°±33.56° / 270°±33.56° の点に接する平面の幾何情報を計算
+    const contactAngle = THREE.MathUtils.degToRad(90 - 33.56); // 90° - 33.56°
+    const planeZ = RADIUS * Math.sin(contactAngle);
+    const intersectionRadius = RADIUS * Math.cos(contactAngle);
+
+    // 2. 球体内部で「紙」が交差する部分を赤い円盤として作成
+    const paperGeom = new THREE.CircleGeometry(intersectionRadius, 64);
+    const paperMat = new THREE.MeshBasicMaterial({
+      color: COLORS.equatorX,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.7,
+    });
+
+    const paperLeft = new THREE.Mesh(paperGeom, paperMat);
+    paperLeft.position.z = -planeZ; // -Z側 (270°方向)
+    paperLeft.renderOrder = 5; // 他の要素より手前に表示
+
+    const paperRight = new THREE.Mesh(paperGeom, paperMat);
+    paperRight.position.z = planeZ; // +Z側 (90°方向)
+    paperRight.renderOrder = 5;
+
+    globe.add(paperLeft, paperRight);
+
+    // 3. 「紙」より外側の球体部分を赤いキャップとして作成
+    const capAngle = Math.PI / 2 - contactAngle; // 極からの角度 (15°)
+    const capGeom = new THREE.SphereGeometry(
+      RADIUS,
+      64,
+      32,
+      0,
+      Math.PI * 2,
+      0,
+      capAngle
+    );
+    const capMat = new THREE.MeshBasicMaterial({
+      color: COLORS.equatorX,
+      transparent: true,
+      opacity: 0.5,
+    });
+
+    // +Z側 (右側) のキャップ
+    const capRight = new THREE.Mesh(capGeom, capMat);
+    capRight.scale.setScalar(1.005); // Z-fightingを避けるために少しだけ大きくする
+    // デフォルトのY軸キャップをZ軸方向に向ける
+    capRight.quaternion.setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      Math.PI / 2
+    );
+    capRight.renderOrder = 1; // 球体より手前、グリッド線より奥
+
+    // -Z側 (左側) のキャップ
+    const capLeft = new THREE.Mesh(capGeom, capMat);
+    capLeft.scale.setScalar(1.005);
+    // デフォルトのY軸キャップを-Z軸方向に向ける
+    capLeft.quaternion.setFromAxisAngle(
+      new THREE.Vector3(-1, 0, 0),
+      Math.PI / 2
+    );
+    capLeft.renderOrder = 1;
+
+    globe.add(capLeft, capRight);
+
+    // 90度/270度を結ぶ新しいZ軸を赤色で追加
+    const zAxisColor = COLORS.equatorX;
+    const zAxisTotal = RADIUS * 2.6;
+    const zExt = (zAxisTotal - 2 * RADIUS) / 2;
+
+    const capZ = (z0: number, z1: number) => {
+      const g = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, z0),
+        new THREE.Vector3(0, 0, z1),
+      ]);
+      const m = new THREE.LineBasicMaterial({
+        color: zAxisColor,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const l = new THREE.Line(g, m);
+      globe.add(l);
+      return { g, m, l };
+    };
+    const capZPos = capZ(RADIUS, RADIUS + zExt);
+    const capZNeg = capZ(-RADIUS - zExt, -RADIUS);
+
+    const innerAxisZGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, -RADIUS),
+      new THREE.Vector3(0, 0, RADIUS),
+    ]);
+    const innerAxisZDashMat = new THREE.LineDashedMaterial({
+      color: zAxisColor,
+      dashSize: 0.14,
+      gapSize: 0.1,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const innerAxisZ = new THREE.Line(innerAxisZGeom, innerAxisZDashMat);
+    innerAxisZ.computeLineDistances();
+    innerAxisZ.renderOrder = 3;
+    globe.add(innerAxisZ);
+
+    // Z軸の極
+    const poleZGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
+    const poleZMat = new THREE.MeshBasicMaterial({ color: zAxisColor });
+    const poleZPos = new THREE.Mesh(poleZGeo, poleZMat);
+    poleZPos.position.set(0, 0, RADIUS);
+    const poleZNeg = new THREE.Mesh(poleZGeo, poleZMat);
+    poleZNeg.position.set(0, 0, -RADIUS);
+    globe.add(poleZPos, poleZNeg);
+
+    // --- ここまで追加 ---
 
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -531,8 +633,6 @@ export default function FaceGlobeV14() {
       renderer.dispose();
       sphereGeom.dispose();
       sphereMat.dispose();
-      axisGeom.dispose();
-      axisDashMat.dispose();
       innerAxisGeom.dispose();
       innerAxisDashMat.dispose();
       capTop.g.dispose();
@@ -540,6 +640,25 @@ export default function FaceGlobeV14() {
       capBot.g.dispose();
       capBot.m.dispose();
       eqGeo.dispose();
+      markerGeo.dispose();
+      markerMat.dispose();
+
+      // --- ここから追加 ---
+      // 追加したジオメトリとマテリアルを破棄
+      paperGeom.dispose();
+      paperMat.dispose();
+      capGeom.dispose();
+      capMat.dispose();
+      capZPos.g.dispose();
+      capZPos.m.dispose();
+      capZNeg.g.dispose();
+      capZNeg.m.dispose();
+      innerAxisZGeom.dispose();
+      innerAxisZDashMat.dispose();
+      poleZGeo.dispose();
+      poleZMat.dispose();
+      // --- ここまで追加 ---
+
       if (axesRendererRef.current) {
         axesRendererRef.current.dispose();
         if (
