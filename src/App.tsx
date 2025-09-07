@@ -254,6 +254,7 @@ export default function FaceGlobeV15() {
       meridianMatsRef.current.push(mat);
       const loop = new THREE.LineLoop(geo, mat);
       loop.frustumCulled = false;
+      loop.renderOrder = 2; // Add this line to fix visibility
       globe.add(loop);
     };
     meridianAngles.forEach(makeMeridian);
@@ -307,15 +308,11 @@ export default function FaceGlobeV15() {
       globe.add(m);
     });
 
-    // --- ここから追加 ---
     // 球体と交差する「紙」と、その外側の球体キャップを赤色で表示
-
-    // 1. 90°±33.56° / 270°±33.56° の点に接する平面の幾何情報を計算
-    const contactAngle = THREE.MathUtils.degToRad(90 - 33.56); // 90° - 33.56°
+    const contactAngle = THREE.MathUtils.degToRad(90 - 33.56);
     const planeZ = RADIUS * Math.sin(contactAngle);
     const intersectionRadius = RADIUS * Math.cos(contactAngle);
 
-    // 2. 球体内部で「紙」が交差する部分を赤い円盤として作成
     const paperGeom = new THREE.CircleGeometry(intersectionRadius, 64);
     const paperMat = new THREE.MeshBasicMaterial({
       color: COLORS.equatorX,
@@ -325,17 +322,16 @@ export default function FaceGlobeV15() {
     });
 
     const paperLeft = new THREE.Mesh(paperGeom, paperMat);
-    paperLeft.position.z = -planeZ; // -Z側 (270°方向)
-    paperLeft.renderOrder = 5; // 他の要素より手前に表示
+    paperLeft.position.z = -planeZ;
+    paperLeft.renderOrder = 5;
 
     const paperRight = new THREE.Mesh(paperGeom, paperMat);
-    paperRight.position.z = planeZ; // +Z側 (90°方向)
+    paperRight.position.z = planeZ;
     paperRight.renderOrder = 5;
 
     globe.add(paperLeft, paperRight);
 
-    // 3. 「紙」より外側の球体部分を赤いキャップとして作成
-    const capAngle = Math.PI / 2 - contactAngle; // 極からの角度 (15°)
+    const capAngle = Math.PI / 2 - contactAngle;
     const capGeom = new THREE.SphereGeometry(
       RADIUS,
       64,
@@ -351,20 +347,16 @@ export default function FaceGlobeV15() {
       opacity: 0.5,
     });
 
-    // +Z側 (右側) のキャップ
     const capRight = new THREE.Mesh(capGeom, capMat);
-    capRight.scale.setScalar(1.005); // Z-fightingを避けるために少しだけ大きくする
-    // デフォルトのY軸キャップをZ軸方向に向ける
+    capRight.scale.setScalar(1.005);
     capRight.quaternion.setFromAxisAngle(
       new THREE.Vector3(1, 0, 0),
       Math.PI / 2
     );
-    capRight.renderOrder = 1; // 球体より手前、グリッド線より奥
+    capRight.renderOrder = 1;
 
-    // -Z側 (左側) のキャップ
     const capLeft = new THREE.Mesh(capGeom, capMat);
     capLeft.scale.setScalar(1.005);
-    // デフォルトのY軸キャップを-Z軸方向に向ける
     capLeft.quaternion.setFromAxisAngle(
       new THREE.Vector3(-1, 0, 0),
       Math.PI / 2
@@ -413,21 +405,71 @@ export default function FaceGlobeV15() {
     innerAxisZ.renderOrder = 3;
     globe.add(innerAxisZ);
 
-    // Z軸の極
     const poleZGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
     const poleZMat = new THREE.MeshBasicMaterial({
       color: zAxisColor,
-      depthTest: false, // 他の点と合わせて表示優先度を調整
+      depthTest: false,
     });
     const poleZPos = new THREE.Mesh(poleZGeo, poleZMat);
     poleZPos.position.set(0, 0, RADIUS);
-    poleZPos.renderOrder = 6; // 他の点と合わせて表示優先度を調整
+    poleZPos.renderOrder = 6;
     const poleZNeg = new THREE.Mesh(poleZGeo, poleZMat);
     poleZNeg.position.set(0, 0, -RADIUS);
-    poleZNeg.renderOrder = 6; // 他の点と合わせて表示優先度を調整
+    poleZNeg.renderOrder = 6;
     globe.add(poleZPos, poleZNeg);
 
-    // --- 交点に点を追加し、点線で結ぶ (修正) ---
+    // --- 0度/180度を結ぶX軸を追加 ---
+    const xAxisColor = COLORS.equatorX;
+    const xAxisTotal = RADIUS * 2.6;
+    const xExt = (xAxisTotal - 2 * RADIUS) / 2;
+
+    const capX = (x0: number, x1: number) => {
+      const g = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(x0, 0, 0),
+        new THREE.Vector3(x1, 0, 0),
+      ]);
+      const m = new THREE.LineBasicMaterial({
+        color: xAxisColor,
+        transparent: true,
+        opacity: 0.95,
+      });
+      const l = new THREE.Line(g, m);
+      globe.add(l);
+      return { g, m, l };
+    };
+    const capXPos = capX(RADIUS, RADIUS + xExt);
+    const capXNeg = capX(-RADIUS - xExt, -RADIUS);
+
+    const innerAxisXGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-RADIUS, 0, 0),
+      new THREE.Vector3(RADIUS, 0, 0),
+    ]);
+    const innerAxisXDashMat = new THREE.LineDashedMaterial({
+      color: xAxisColor,
+      dashSize: 0.14,
+      gapSize: 0.1,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const innerAxisX = new THREE.Line(innerAxisXGeom, innerAxisXDashMat);
+    innerAxisX.computeLineDistances();
+    innerAxisX.renderOrder = 3;
+    globe.add(innerAxisX);
+
+    // X軸の極 (0度はfacePointがあるので180度側のみ追加)
+    const poleXGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
+    const poleXMat = new THREE.MeshBasicMaterial({
+      color: xAxisColor,
+      depthTest: false,
+    });
+    const poleXNeg = new THREE.Mesh(poleXGeo, poleXMat);
+    poleXNeg.position.set(-RADIUS, 0, 0);
+    poleXNeg.renderOrder = 6;
+    globe.add(poleXNeg);
+    // --- ここまで追加 ---
+
     const dotGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
     const redDotMat = new THREE.MeshBasicMaterial({
       color: COLORS.equatorX,
@@ -445,17 +487,13 @@ export default function FaceGlobeV15() {
 
     [planeZ, -planeZ].forEach((z) => {
       const positions = {
-        // 以前の白い点 (赤に変更)
         meridianTop: new THREE.Vector3(0, intersectionRadius, z),
         meridianBottom: new THREE.Vector3(0, -intersectionRadius, z),
-        // 赤道上の点
         equatorRight: new THREE.Vector3(intersectionRadius, 0, z),
         equatorLeft: new THREE.Vector3(-intersectionRadius, 0, z),
-        // Z軸と紙の交点
         center: new THREE.Vector3(0, 0, z),
       };
 
-      // 点を配置
       Object.values(positions).forEach((pos) => {
         const dot = new THREE.Mesh(dotGeo, redDotMat);
         dot.position.copy(pos);
@@ -463,7 +501,6 @@ export default function FaceGlobeV15() {
         globe.add(dot);
       });
 
-      // 点線を引く (子午線上の点)
       const meridianLineGeo = new THREE.BufferGeometry().setFromPoints([
         positions.meridianTop,
         positions.meridianBottom,
@@ -474,7 +511,6 @@ export default function FaceGlobeV15() {
       meridianLine.renderOrder = 5;
       globe.add(meridianLine);
 
-      // 点線を引く (赤道上の点)
       const equatorLineGeo = new THREE.BufferGeometry().setFromPoints([
         positions.equatorRight,
         positions.equatorLeft,
@@ -485,7 +521,6 @@ export default function FaceGlobeV15() {
       equatorLine.renderOrder = 5;
       globe.add(equatorLine);
     });
-    // --- ここまで修正 ---
 
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -706,7 +741,6 @@ export default function FaceGlobeV15() {
       markerGeo.dispose();
       markerMat.dispose();
 
-      // --- ここから追加 ---
       // 追加したジオメトリとマテリアルを破棄
       paperGeom.dispose();
       paperMat.dispose();
@@ -721,12 +755,21 @@ export default function FaceGlobeV15() {
       poleZGeo.dispose();
       poleZMat.dispose();
 
-      // --- ここから追加 (修正) ---
+      // --- ここから追加 ---
+      capXPos.g.dispose();
+      capXPos.m.dispose();
+      capXNeg.g.dispose();
+      capXNeg.m.dispose();
+      innerAxisXGeom.dispose();
+      innerAxisXDashMat.dispose();
+      poleXGeo.dispose();
+      poleXMat.dispose();
+      // --- ここまで追加 ---
+
       dotGeo.dispose();
       redDotMat.dispose();
       dashMat.dispose();
       linesToDispose.forEach((geo) => geo.dispose());
-      // --- ここまで修正 ---
 
       if (axesRendererRef.current) {
         axesRendererRef.current.dispose();
