@@ -415,14 +415,77 @@ export default function FaceGlobeV15() {
 
     // Z軸の極
     const poleZGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
-    const poleZMat = new THREE.MeshBasicMaterial({ color: zAxisColor });
+    const poleZMat = new THREE.MeshBasicMaterial({
+      color: zAxisColor,
+      depthTest: false, // 他の点と合わせて表示優先度を調整
+    });
     const poleZPos = new THREE.Mesh(poleZGeo, poleZMat);
     poleZPos.position.set(0, 0, RADIUS);
+    poleZPos.renderOrder = 6; // 他の点と合わせて表示優先度を調整
     const poleZNeg = new THREE.Mesh(poleZGeo, poleZMat);
     poleZNeg.position.set(0, 0, -RADIUS);
+    poleZNeg.renderOrder = 6; // 他の点と合わせて表示優先度を調整
     globe.add(poleZPos, poleZNeg);
 
-    // --- ここまで追加 ---
+    // --- 交点に点を追加し、点線で結ぶ (修正) ---
+    const dotGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
+    const redDotMat = new THREE.MeshBasicMaterial({
+      color: COLORS.equatorX,
+      depthTest: false,
+    });
+
+    const dashMat = new THREE.LineDashedMaterial({
+      color: COLORS.equatorX,
+      dashSize: 0.1,
+      gapSize: 0.05,
+      depthTest: false,
+    });
+
+    const linesToDispose: THREE.BufferGeometry[] = [];
+
+    [planeZ, -planeZ].forEach((z) => {
+      const positions = {
+        // 以前の白い点 (赤に変更)
+        meridianTop: new THREE.Vector3(0, intersectionRadius, z),
+        meridianBottom: new THREE.Vector3(0, -intersectionRadius, z),
+        // 赤道上の点
+        equatorRight: new THREE.Vector3(intersectionRadius, 0, z),
+        equatorLeft: new THREE.Vector3(-intersectionRadius, 0, z),
+        // Z軸と紙の交点
+        center: new THREE.Vector3(0, 0, z),
+      };
+
+      // 点を配置
+      Object.values(positions).forEach((pos) => {
+        const dot = new THREE.Mesh(dotGeo, redDotMat);
+        dot.position.copy(pos);
+        dot.renderOrder = 6;
+        globe.add(dot);
+      });
+
+      // 点線を引く (子午線上の点)
+      const meridianLineGeo = new THREE.BufferGeometry().setFromPoints([
+        positions.meridianTop,
+        positions.meridianBottom,
+      ]);
+      linesToDispose.push(meridianLineGeo);
+      const meridianLine = new THREE.Line(meridianLineGeo, dashMat);
+      meridianLine.computeLineDistances();
+      meridianLine.renderOrder = 5;
+      globe.add(meridianLine);
+
+      // 点線を引く (赤道上の点)
+      const equatorLineGeo = new THREE.BufferGeometry().setFromPoints([
+        positions.equatorRight,
+        positions.equatorLeft,
+      ]);
+      linesToDispose.push(equatorLineGeo);
+      const equatorLine = new THREE.Line(equatorLineGeo, dashMat);
+      equatorLine.computeLineDistances();
+      equatorLine.renderOrder = 5;
+      globe.add(equatorLine);
+    });
+    // --- ここまで修正 ---
 
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -657,7 +720,13 @@ export default function FaceGlobeV15() {
       innerAxisZDashMat.dispose();
       poleZGeo.dispose();
       poleZMat.dispose();
-      // --- ここまで追加 ---
+
+      // --- ここから追加 (修正) ---
+      dotGeo.dispose();
+      redDotMat.dispose();
+      dashMat.dispose();
+      linesToDispose.forEach((geo) => geo.dispose());
+      // --- ここまで修正 ---
 
       if (axesRendererRef.current) {
         axesRendererRef.current.dispose();
