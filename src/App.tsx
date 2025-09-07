@@ -93,6 +93,8 @@ export default function FaceGlobeV15() {
   const sphereMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const meridianMatsRef = useRef<THREE.LineBasicMaterial[]>([]);
   const eqMatRef = useRef<THREE.LineBasicMaterial | null>(null);
+  const whiteDotMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
+  const perpendicularMatRef = useRef<THREE.LineBasicMaterial | null>(null);
 
   // OrbitControls
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -483,6 +485,86 @@ export default function FaceGlobeV15() {
     globe.add(poleXNeg);
     // --- ここまで追加 ---
 
+    // --- 北極点と矢印の間に点を追加 ---
+    const whiteDotGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
+    const whiteDotMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      depthTest: false,
+    });
+    whiteDotMatRef.current = whiteDotMat;
+    const angleFromNorthPole = THREE.MathUtils.degToRad(45);
+    const dotX = RADIUS * Math.sin(angleFromNorthPole);
+    const dotY = RADIUS * Math.cos(angleFromNorthPole);
+
+    const fortyFiveDegreeDot = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    fortyFiveDegreeDot.position.set(dotX, dotY, 0);
+    fortyFiveDegreeDot.renderOrder = 6;
+    globe.add(fortyFiveDegreeDot);
+    // --- ここまで追加 ---
+
+    // --- 矢印からの垂線を延長 ---
+    const arcLength = RADIUS * angleFromNorthPole;
+    const perpendicularLineColor = 0xffffff; // White
+
+    const perpendicularGeom = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(RADIUS, 0, 0),
+      new THREE.Vector3(RADIUS, -arcLength * 2, 0),
+    ]);
+    const perpendicularMat = new THREE.LineBasicMaterial({
+      color: perpendicularLineColor,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false,
+    });
+    perpendicularMatRef.current = perpendicularMat;
+    const perpendicularLine = new THREE.Line(
+      perpendicularGeom,
+      perpendicularMat
+    );
+    perpendicularLine.renderOrder = 3;
+    globe.add(perpendicularLine);
+    // --- ここまで追加 ---
+
+    // --- 延長した線の上に点を復活 ---
+    // 1つ目の点 (矢印からarcLength分離れた点)
+    const arcPoint1 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    arcPoint1.position.set(RADIUS, -arcLength, 0);
+    arcPoint1.renderOrder = 6;
+    globe.add(arcPoint1);
+
+    // 2つ目の点 (1つ目の点からさらにarcLength分離れた点)
+    const arcPoint2 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    arcPoint2.position.set(RADIUS, -arcLength * 2, 0);
+    arcPoint2.renderOrder = 6;
+    globe.add(arcPoint2);
+    // --- ここまで追加 ---
+
+    // --- さらに線上に点を分割して追加 ---
+    // 直線の真ん中の点(arcPoint1)と下の点(arcPoint2)を3分割する2つの点
+    const divPoint1 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    divPoint1.position.set(RADIUS, -arcLength - arcLength / 3, 0);
+    divPoint1.renderOrder = 6;
+    globe.add(divPoint1);
+
+    const divPoint2 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    divPoint2.position.set(RADIUS, -arcLength - (2 * arcLength) / 3, 0);
+    divPoint2.renderOrder = 6;
+    globe.add(divPoint2);
+
+    // 矢印の点と真ん中の点(arcPoint1)を半分にする点
+    const halfPoint = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    halfPoint.position.set(RADIUS, -arcLength / 2, 0);
+    halfPoint.renderOrder = 6;
+    globe.add(halfPoint);
+
+    // 矢印の点と今追加したhalfPointの間にある点
+    const quarterPoint = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    quarterPoint.position.set(RADIUS, -arcLength / 4, 0);
+    quarterPoint.renderOrder = 6;
+    globe.add(quarterPoint);
+    // --- ここまで追加 ---
+
     const dotGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
     const redDotMat = new THREE.MeshBasicMaterial({
       color: COLORS.equatorX,
@@ -779,6 +861,16 @@ export default function FaceGlobeV15() {
       poleXMat.dispose();
       // --- ここまで追加 ---
 
+      // --- 垂線関連の破棄を追加 ---
+      perpendicularGeom.dispose();
+      perpendicularMat.dispose();
+      // --- ここまで追加 ---
+
+      // --- 45度点の破棄を追加 ---
+      whiteDotGeo.dispose();
+      whiteDotMat.dispose();
+      // --- ここまで追加 ---
+
       dotGeo.dispose();
       redDotMat.dispose();
       dashMat.dispose();
@@ -822,6 +914,14 @@ export default function FaceGlobeV15() {
       );
       axesPlateMatRef.current.opacity = isDark ? 0.35 : 0.25;
       axesPlateMatRef.current.needsUpdate = true;
+    }
+    if (whiteDotMatRef.current) {
+      whiteDotMatRef.current.color.set(isDark ? 0xffffff : COLORS.gridLight);
+    }
+    if (perpendicularMatRef.current) {
+      perpendicularMatRef.current.color.set(
+        isDark ? 0xffffff : COLORS.gridLight
+      );
     }
     // Sync page background/text with theme to avoid white below canvas
     const body = document.body;
