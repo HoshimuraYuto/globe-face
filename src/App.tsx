@@ -92,6 +92,7 @@ export default function FaceGlobeV15() {
 
   const sphereMatRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const meridianMatsRef = useRef<THREE.LineBasicMaterial[]>([]);
+  const eqMatRef = useRef<THREE.LineBasicMaterial | null>(null);
 
   // OrbitControls
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -106,6 +107,8 @@ export default function FaceGlobeV15() {
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [gizmoMode, setGizmoMode] = useState<"object" | "world">("object");
+  const [showBackEquator, setShowBackEquator] = useState(true);
+  const [showBackMeridians, setShowBackMeridians] = useState(false);
   const gizmoModeRef = useRef<"object" | "world">(gizmoMode);
   useEffect(() => {
     gizmoModeRef.current = gizmoMode;
@@ -217,11 +220,16 @@ export default function FaceGlobeV15() {
 
     // Poles + face mark
     const poleGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
-    const poleMat = new THREE.MeshBasicMaterial({ color: axisColor });
+    const poleMat = new THREE.MeshBasicMaterial({
+      color: axisColor,
+      depthTest: false,
+    });
     const north = new THREE.Mesh(poleGeo, poleMat);
     north.position.set(0, RADIUS, 0);
+    north.renderOrder = 6;
     const south = new THREE.Mesh(poleGeo, poleMat);
     south.position.set(0, -RADIUS, 0);
+    south.renderOrder = 6;
     globe.add(north, south);
     const facePoint = new THREE.Mesh(
       new THREE.SphereGeometry(RADIUS * 0.015, 12, 12),
@@ -250,6 +258,8 @@ export default function FaceGlobeV15() {
         color: COLORS.gridLight,
         transparent: true,
         opacity: 0.95,
+        depthTest: false,
+        depthWrite: false,
       });
       meridianMatsRef.current.push(mat);
       const loop = new THREE.LineLoop(geo, mat);
@@ -275,6 +285,7 @@ export default function FaceGlobeV15() {
       depthTest: false,
       depthWrite: false,
     });
+    eqMatRef.current = eqMat;
     const equator = new THREE.LineLoop(eqGeo, eqMat);
     equator.frustumCulled = false;
     equator.renderOrder = 2;
@@ -345,8 +356,10 @@ export default function FaceGlobeV15() {
       color: COLORS.equatorX,
       transparent: true,
       opacity: 0.5,
+      depthTest: false,
     });
 
+    // +Z側 (右側) のキャップ
     const capRight = new THREE.Mesh(capGeom, capMat);
     capRight.scale.setScalar(1.005);
     capRight.quaternion.setFromAxisAngle(
@@ -365,8 +378,8 @@ export default function FaceGlobeV15() {
 
     globe.add(capLeft, capRight);
 
-    // 90度/270度を結ぶ新しいZ軸を赤色で追加
-    const zAxisColor = COLORS.equatorX;
+    // 90度/270度を結ぶ新しいZ軸を青色で追加
+    const zAxisColor = COLORS.gizmoZ;
     const zAxisTotal = RADIUS * 2.6;
     const zExt = (zAxisTotal - 2 * RADIUS) / 2;
 
@@ -407,7 +420,7 @@ export default function FaceGlobeV15() {
 
     const poleZGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
     const poleZMat = new THREE.MeshBasicMaterial({
-      color: zAxisColor,
+      color: 0xff00ff, // Magenta, a mix of red and blue
       depthTest: false,
     });
     const poleZPos = new THREE.Mesh(poleZGeo, poleZMat);
@@ -826,6 +839,28 @@ export default function FaceGlobeV15() {
     }
   }, [dark]);
 
+  useEffect(() => {
+    const eqMat = eqMatRef.current;
+    if (!eqMat) return;
+
+    const newDepthTest = !showBackEquator;
+    eqMat.depthTest = newDepthTest;
+    eqMat.depthWrite = newDepthTest;
+    eqMat.needsUpdate = true;
+  }, [showBackEquator]);
+
+  useEffect(() => {
+    const meridianMats = meridianMatsRef.current;
+    if (meridianMats.length === 0) return;
+
+    const newDepthTest = !showBackMeridians;
+    meridianMats.forEach((mat) => {
+      mat.depthTest = newDepthTest;
+      mat.depthWrite = newDepthTest;
+      mat.needsUpdate = true;
+    });
+  }, [showBackMeridians]);
+
   // ---------- Actions ----------
   // Quaternion-based local rotations (right-hand rule)
   const rotateBy = (axis: "x" | "y" | "z", sign: 1 | -1) => {
@@ -960,6 +995,43 @@ export default function FaceGlobeV15() {
         {!collapsed && (
           <>
             <div className="font-medium">操作</div>
+            <div className="my-2 space-y-1">
+              <div className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  id="show-back-equator"
+                  checked={showBackEquator}
+                  onChange={(e) => setShowBackEquator(e.target.checked)}
+                  className={`form-checkbox h-3.5 w-3.5 rounded-sm appearance-none ${
+                    dark
+                      ? "bg-neutral-800 border-neutral-600 checked:bg-blue-500"
+                      : "bg-neutral-200 border-neutral-400 checked:bg-blue-600"
+                  } border checked:border-transparent focus:outline-none`}
+                />
+                <label htmlFor="show-back-equator" className={`${subtleText}`}>
+                  裏側の赤道を表示
+                </label>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  id="show-back-meridians"
+                  checked={showBackMeridians}
+                  onChange={(e) => setShowBackMeridians(e.target.checked)}
+                  className={`form-checkbox h-3.5 w-3.5 rounded-sm appearance-none ${
+                    dark
+                      ? "bg-neutral-800 border-neutral-600 checked:bg-blue-500"
+                      : "bg-neutral-200 border-neutral-400 checked:bg-blue-600"
+                  } border checked:border-transparent focus:outline-none`}
+                />
+                <label
+                  htmlFor="show-back-meridians"
+                  className={`${subtleText}`}
+                >
+                  裏側の経線を表示
+                </label>
+              </div>
+            </div>
             <ul className={`list-disc pl-4 text-xs ${noteText}`}>
               <li>ドラッグ: 自由回転(360°)</li>
               <li>ホイール: ズーム</li>
