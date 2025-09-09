@@ -96,6 +96,25 @@ export default function FaceGlobeV15() {
   const whiteDotMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
   const perpendicularMatRef = useRef<THREE.LineBasicMaterial | null>(null);
 
+  // Refs for dynamic objects
+  const perpendicularLineRef = useRef<THREE.Line | null>(null);
+  const arcPoint1Ref = useRef<THREE.Mesh | null>(null);
+  const arcPoint2Ref = useRef<THREE.Mesh | null>(null);
+  const divPoint1Ref = useRef<THREE.Mesh | null>(null);
+  const divPoint2Ref = useRef<THREE.Mesh | null>(null);
+  const halfPointRef = useRef<THREE.Mesh | null>(null);
+  const quarterPointRef = useRef<THREE.Mesh | null>(null);
+  const baseArcLengthRef = useRef(0);
+
+  // Refs for dynamic objects related to contact angle
+  const markersRef = useRef<THREE.Mesh[]>([]);
+  const paperLeftRef = useRef<THREE.Mesh | null>(null);
+  const paperRightRef = useRef<THREE.Mesh | null>(null);
+  const capLeftRef = useRef<THREE.Mesh | null>(null);
+  const capRightRef = useRef<THREE.Mesh | null>(null);
+  const intersectionDotsRef = useRef<THREE.Mesh[]>([]);
+  const intersectionLinesRef = useRef<THREE.Line[]>([]);
+
   // OrbitControls
   const controlsRef = useRef<OrbitControls | null>(null);
 
@@ -111,6 +130,10 @@ export default function FaceGlobeV15() {
   const [gizmoMode, setGizmoMode] = useState<"object" | "world">("object");
   const [showBackEquator, setShowBackEquator] = useState(true);
   const [showBackMeridians, setShowBackMeridians] = useState(false);
+  const [arcLengthScale, setArcLengthScale] = useState(100);
+  const [arcStepPercent, setArcStepPercent] = useState(5);
+  const [contactAngleDeg, setContactAngleDeg] = useState(33.56);
+  const [contactAngleStep, setContactAngleStep] = useState(1);
   const gizmoModeRef = useRef<"object" | "world">(gizmoMode);
   useEffect(() => {
     gizmoModeRef.current = gizmoMode;
@@ -307,78 +330,89 @@ export default function FaceGlobeV15() {
     arrow.renderOrder = 4;
     globe.add(arrow);
 
-    // Red markers at 90°±33.56° and 270°±33.56° (0° is +X / red arrow)
-    const markerAnglesDeg = [90 - 33.56, 90 + 33.56, 270 - 33.56, 270 + 33.56];
-    const markerGeo = new THREE.SphereGeometry(RADIUS * 0.01, 18, 18); // smaller than facePoint (0.015R)
+    // --- Dynamic objects based on contactAngleDeg (creation) ---
+    // Red markers at 90°±contactAngleDeg and 270°±contactAngleDeg
+    const markerGeo = new THREE.SphereGeometry(RADIUS * 0.01, 18, 18);
     const markerMat = new THREE.MeshBasicMaterial({ color: COLORS.equatorX });
-    markerAnglesDeg.forEach((deg) => {
-      const t = THREE.MathUtils.degToRad(deg);
-      const x = RADIUS * Math.cos(t);
-      const z = RADIUS * Math.sin(t);
-      const m = new THREE.Mesh(markerGeo, markerMat);
-      m.position.set(x, 0, z);
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.Mesh(markerGeo.clone(), markerMat);
       m.renderOrder = 4;
       globe.add(m);
-    });
+      markersRef.current.push(m);
+    }
 
-    // 球体と交差する「紙」と、その外側の球体キャップを赤色で表示
-    const contactAngle = THREE.MathUtils.degToRad(90 - 33.56);
-    const planeZ = RADIUS * Math.sin(contactAngle);
-    const intersectionRadius = RADIUS * Math.cos(contactAngle);
-
-    const paperGeom = new THREE.CircleGeometry(intersectionRadius, 64);
+    // "Paper" planes
     const paperMat = new THREE.MeshBasicMaterial({
       color: COLORS.equatorX,
       side: THREE.DoubleSide,
       transparent: true,
       opacity: 0.7,
     });
-
-    const paperLeft = new THREE.Mesh(paperGeom, paperMat);
-    paperLeft.position.z = -planeZ;
-    paperLeft.renderOrder = 5;
-
-    const paperRight = new THREE.Mesh(paperGeom, paperMat);
-    paperRight.position.z = planeZ;
-    paperRight.renderOrder = 5;
-
-    globe.add(paperLeft, paperRight);
-
-    const capAngle = Math.PI / 2 - contactAngle;
-    const capGeom = new THREE.SphereGeometry(
-      RADIUS,
-      64,
-      32,
-      0,
-      Math.PI * 2,
-      0,
-      capAngle
+    paperLeftRef.current = new THREE.Mesh(new THREE.BufferGeometry(), paperMat);
+    paperLeftRef.current.renderOrder = 5;
+    globe.add(paperLeftRef.current);
+    paperRightRef.current = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      paperMat
     );
+    paperRightRef.current.renderOrder = 5;
+    globe.add(paperRightRef.current);
+
+    // Sphere caps
     const capMat = new THREE.MeshBasicMaterial({
       color: COLORS.equatorX,
       transparent: true,
       opacity: 0.5,
       depthTest: false,
     });
-
-    // +Z側 (右側) のキャップ
-    const capRight = new THREE.Mesh(capGeom, capMat);
-    capRight.scale.setScalar(1.005);
-    capRight.quaternion.setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      Math.PI / 2
-    );
-    capRight.renderOrder = 1;
-
-    const capLeft = new THREE.Mesh(capGeom, capMat);
-    capLeft.scale.setScalar(1.005);
-    capLeft.quaternion.setFromAxisAngle(
+    capLeftRef.current = new THREE.Mesh(new THREE.BufferGeometry(), capMat);
+    capLeftRef.current.scale.setScalar(1.005);
+    capLeftRef.current.quaternion.setFromAxisAngle(
       new THREE.Vector3(-1, 0, 0),
       Math.PI / 2
     );
-    capLeft.renderOrder = 1;
+    capLeftRef.current.renderOrder = 1;
+    globe.add(capLeftRef.current);
 
-    globe.add(capLeft, capRight);
+    capRightRef.current = new THREE.Mesh(new THREE.BufferGeometry(), capMat);
+    capRightRef.current.scale.setScalar(1.005);
+    capRightRef.current.quaternion.setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      Math.PI / 2
+    );
+    capRightRef.current.renderOrder = 1;
+    globe.add(capRightRef.current);
+
+    // Intersection dots and lines
+    const dotGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
+    const redDotMat = new THREE.MeshBasicMaterial({
+      color: COLORS.equatorX,
+      depthTest: false,
+    });
+    const dashMat = new THREE.LineDashedMaterial({
+      color: COLORS.equatorX,
+      dashSize: 0.1,
+      gapSize: 0.05,
+      depthTest: false,
+    });
+
+    for (let i = 0; i < 10; i++) {
+      const dot = new THREE.Mesh(dotGeo.clone(), redDotMat);
+      dot.renderOrder = 6;
+      globe.add(dot);
+      intersectionDotsRef.current.push(dot);
+    }
+
+    const initialLinePoints = [new THREE.Vector3(), new THREE.Vector3()];
+    for (let i = 0; i < 4; i++) {
+      const lineGeo = new THREE.BufferGeometry().setFromPoints(
+        initialLinePoints
+      );
+      const line = new THREE.Line(lineGeo, dashMat);
+      line.renderOrder = 5;
+      globe.add(line);
+      intersectionLinesRef.current.push(line);
+    }
 
     // 90度/270度を結ぶ新しいZ軸を青色で追加
     const zAxisColor = COLORS.gizmoZ;
@@ -503,12 +537,12 @@ export default function FaceGlobeV15() {
     // --- ここまで追加 ---
 
     // --- 矢印からの垂線を延長 ---
-    const arcLength = RADIUS * angleFromNorthPole;
+    baseArcLengthRef.current = RADIUS * angleFromNorthPole;
     const perpendicularLineColor = 0xffffff; // White
 
     const perpendicularGeom = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(RADIUS, 0, 0),
-      new THREE.Vector3(RADIUS, -arcLength * 2, 0),
+      new THREE.Vector3(RADIUS, -baseArcLengthRef.current * 2, 0),
     ]);
     const perpendicularMat = new THREE.LineBasicMaterial({
       color: perpendicularLineColor,
@@ -523,99 +557,55 @@ export default function FaceGlobeV15() {
       perpendicularMat
     );
     perpendicularLine.renderOrder = 3;
+    perpendicularLineRef.current = perpendicularLine;
     globe.add(perpendicularLine);
     // --- ここまで追加 ---
 
     // --- 延長した線の上に点を復活 ---
-    // 1つ目の点 (矢印からarcLength分離れた点)
-    const arcPoint1 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
-    arcPoint1.position.set(RADIUS, -arcLength, 0);
-    arcPoint1.renderOrder = 6;
-    globe.add(arcPoint1);
+    arcPoint1Ref.current = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    arcPoint1Ref.current.position.set(RADIUS, -baseArcLengthRef.current, 0);
+    arcPoint1Ref.current.renderOrder = 6;
+    globe.add(arcPoint1Ref.current);
 
-    // 2つ目の点 (1つ目の点からさらにarcLength分離れた点)
-    const arcPoint2 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
-    arcPoint2.position.set(RADIUS, -arcLength * 2, 0);
-    arcPoint2.renderOrder = 6;
-    globe.add(arcPoint2);
+    arcPoint2Ref.current = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    arcPoint2Ref.current.position.set(RADIUS, -baseArcLengthRef.current * 2, 0);
+    arcPoint2Ref.current.renderOrder = 6;
+    globe.add(arcPoint2Ref.current);
     // --- ここまで追加 ---
 
     // --- さらに線上に点を分割して追加 ---
-    // 直線の真ん中の点(arcPoint1)と下の点(arcPoint2)を3分割する2つの点
-    const divPoint1 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
-    divPoint1.position.set(RADIUS, -arcLength - arcLength / 3, 0);
-    divPoint1.renderOrder = 6;
-    globe.add(divPoint1);
+    divPoint1Ref.current = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    divPoint1Ref.current.position.set(
+      RADIUS,
+      -baseArcLengthRef.current - baseArcLengthRef.current / 3,
+      0
+    );
+    divPoint1Ref.current.renderOrder = 6;
+    globe.add(divPoint1Ref.current);
 
-    const divPoint2 = new THREE.Mesh(whiteDotGeo, whiteDotMat);
-    divPoint2.position.set(RADIUS, -arcLength - (2 * arcLength) / 3, 0);
-    divPoint2.renderOrder = 6;
-    globe.add(divPoint2);
+    divPoint2Ref.current = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    divPoint2Ref.current.position.set(
+      RADIUS,
+      -baseArcLengthRef.current - (2 * baseArcLengthRef.current) / 3,
+      0
+    );
+    divPoint2Ref.current.renderOrder = 6;
+    globe.add(divPoint2Ref.current);
 
-    // 矢印の点と真ん中の点(arcPoint1)を半分にする点
-    const halfPoint = new THREE.Mesh(whiteDotGeo, whiteDotMat);
-    halfPoint.position.set(RADIUS, -arcLength / 2, 0);
-    halfPoint.renderOrder = 6;
-    globe.add(halfPoint);
+    halfPointRef.current = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    halfPointRef.current.position.set(RADIUS, -baseArcLengthRef.current / 2, 0);
+    halfPointRef.current.renderOrder = 6;
+    globe.add(halfPointRef.current);
 
-    // 矢印の点と今追加したhalfPointの間にある点
-    const quarterPoint = new THREE.Mesh(whiteDotGeo, whiteDotMat);
-    quarterPoint.position.set(RADIUS, -arcLength / 4, 0);
-    quarterPoint.renderOrder = 6;
-    globe.add(quarterPoint);
+    quarterPointRef.current = new THREE.Mesh(whiteDotGeo, whiteDotMat);
+    quarterPointRef.current.position.set(
+      RADIUS,
+      -baseArcLengthRef.current / 4,
+      0
+    );
+    quarterPointRef.current.renderOrder = 6;
+    globe.add(quarterPointRef.current);
     // --- ここまで追加 ---
-
-    const dotGeo = new THREE.SphereGeometry(RADIUS * 0.015, 16, 16);
-    const redDotMat = new THREE.MeshBasicMaterial({
-      color: COLORS.equatorX,
-      depthTest: false,
-    });
-
-    const dashMat = new THREE.LineDashedMaterial({
-      color: COLORS.equatorX,
-      dashSize: 0.1,
-      gapSize: 0.05,
-      depthTest: false,
-    });
-
-    const linesToDispose: THREE.BufferGeometry[] = [];
-
-    [planeZ, -planeZ].forEach((z) => {
-      const positions = {
-        meridianTop: new THREE.Vector3(0, intersectionRadius, z),
-        meridianBottom: new THREE.Vector3(0, -intersectionRadius, z),
-        equatorRight: new THREE.Vector3(intersectionRadius, 0, z),
-        equatorLeft: new THREE.Vector3(-intersectionRadius, 0, z),
-        center: new THREE.Vector3(0, 0, z),
-      };
-
-      Object.values(positions).forEach((pos) => {
-        const dot = new THREE.Mesh(dotGeo, redDotMat);
-        dot.position.copy(pos);
-        dot.renderOrder = 6;
-        globe.add(dot);
-      });
-
-      const meridianLineGeo = new THREE.BufferGeometry().setFromPoints([
-        positions.meridianTop,
-        positions.meridianBottom,
-      ]);
-      linesToDispose.push(meridianLineGeo);
-      const meridianLine = new THREE.Line(meridianLineGeo, dashMat);
-      meridianLine.computeLineDistances();
-      meridianLine.renderOrder = 5;
-      globe.add(meridianLine);
-
-      const equatorLineGeo = new THREE.BufferGeometry().setFromPoints([
-        positions.equatorRight,
-        positions.equatorLeft,
-      ]);
-      linesToDispose.push(equatorLineGeo);
-      const equatorLine = new THREE.Line(equatorLineGeo, dashMat);
-      equatorLine.computeLineDistances();
-      equatorLine.renderOrder = 5;
-      globe.add(equatorLine);
-    });
 
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -823,70 +813,39 @@ export default function FaceGlobeV15() {
       window.removeEventListener("resize", onResize);
       ro.disconnect();
       renderer.setAnimationLoop(null);
-      renderer.dispose();
-      sphereGeom.dispose();
-      sphereMat.dispose();
-      innerAxisGeom.dispose();
-      innerAxisDashMat.dispose();
-      capTop.g.dispose();
-      capTop.m.dispose();
-      capBot.g.dispose();
-      capBot.m.dispose();
-      eqGeo.dispose();
-      markerGeo.dispose();
-      markerMat.dispose();
-
-      // 追加したジオメトリとマテリアルを破棄
-      paperGeom.dispose();
-      paperMat.dispose();
-      capGeom.dispose();
-      capMat.dispose();
-      capZPos.g.dispose();
-      capZPos.m.dispose();
-      capZNeg.g.dispose();
-      capZNeg.m.dispose();
-      innerAxisZGeom.dispose();
-      innerAxisZDashMat.dispose();
-      poleZGeo.dispose();
-      poleZMat.dispose();
-
-      // --- ここから追加 ---
-      capXPos.g.dispose();
-      capXPos.m.dispose();
-      capXNeg.g.dispose();
-      capXNeg.m.dispose();
-      innerAxisXGeom.dispose();
-      innerAxisXDashMat.dispose();
-      poleXGeo.dispose();
-      poleXMat.dispose();
-      // --- ここまで追加 ---
-
-      // --- 垂線関連の破棄を追加 ---
-      perpendicularGeom.dispose();
-      perpendicularMat.dispose();
-      // --- ここまで追加 ---
-
-      // --- 45度点の破棄を追加 ---
-      whiteDotGeo.dispose();
-      whiteDotMat.dispose();
-      // --- ここまで追加 ---
-
-      dotGeo.dispose();
-      redDotMat.dispose();
-      dashMat.dispose();
-      linesToDispose.forEach((geo) => geo.dispose());
-
-      if (axesRendererRef.current) {
-        axesRendererRef.current.dispose();
-        if (
-          axesRendererRef.current.domElement &&
-          axesRendererRef.current.domElement.parentNode === container
-        ) {
-          container.removeChild(axesRendererRef.current.domElement);
+      // Clean up Three.js objects
+      const cleanUp = (obj: any) => {
+        if (!obj) return;
+        if (obj.geometry) {
+          obj.geometry.dispose();
         }
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach((m: THREE.Material) => m.dispose());
+          } else {
+            obj.material.dispose();
+          }
+        }
+        if (obj.children) {
+          [...obj.children].forEach(cleanUp);
+        }
+      };
+
+      if (sceneRef.current) {
+        cleanUp(sceneRef.current);
       }
-      if (renderer.domElement && renderer.domElement.parentNode === container)
+      if (axesRendererRef.current) {
+        cleanUp(axesScene);
+        axesRendererRef.current.dispose();
+      }
+      renderer.dispose();
+
+      if (renderer.domElement?.parentNode === container) {
         container.removeChild(renderer.domElement);
+      }
+      if (axesRendererRef.current?.domElement?.parentNode === container) {
+        container.removeChild(axesRendererRef.current.domElement);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -961,6 +920,178 @@ export default function FaceGlobeV15() {
     });
   }, [showBackMeridians]);
 
+  useEffect(() => {
+    if (
+      !perpendicularLineRef.current ||
+      !arcPoint1Ref.current ||
+      !arcPoint2Ref.current ||
+      !divPoint1Ref.current ||
+      !divPoint2Ref.current ||
+      !halfPointRef.current ||
+      !quarterPointRef.current
+    ) {
+      return;
+    }
+
+    const baseArcLength = baseArcLengthRef.current;
+    const scaledArcLength = baseArcLength * (arcLengthScale / 100);
+
+    // Update dot positions
+    arcPoint1Ref.current.position.y = -scaledArcLength;
+    arcPoint2Ref.current.position.y = -scaledArcLength * 2;
+    divPoint1Ref.current.position.y = -scaledArcLength - scaledArcLength / 3;
+    divPoint2Ref.current.position.y =
+      -scaledArcLength - (2 * scaledArcLength) / 3;
+    halfPointRef.current.position.y = -scaledArcLength / 2;
+    quarterPointRef.current.position.y = -scaledArcLength / 4;
+
+    // Update line geometry
+    const line = perpendicularLineRef.current;
+    const positions = line.geometry.attributes.position;
+    positions.setY(1, -scaledArcLength * 2);
+    positions.needsUpdate = true;
+  }, [arcLengthScale]);
+
+  useEffect(() => {
+    // This effect updates scene objects when contactAngleDeg changes.
+    if (
+      markersRef.current.length === 0 ||
+      !paperLeftRef.current ||
+      !paperRightRef.current ||
+      !capLeftRef.current ||
+      !capRightRef.current ||
+      intersectionDotsRef.current.length === 0 ||
+      intersectionLinesRef.current.length === 0
+    ) {
+      return;
+    }
+
+    // 1. Recalculate geometric parameters
+    const angleRad = THREE.MathUtils.degToRad(90 - contactAngleDeg);
+    const planeZ = RADIUS * Math.sin(angleRad);
+    const intersectionRadius = RADIUS * Math.cos(angleRad);
+
+    // 2. Update markers on the equator
+    const newMarkerAngles = [
+      90 - contactAngleDeg,
+      90 + contactAngleDeg,
+      270 - contactAngleDeg,
+      270 + contactAngleDeg,
+    ];
+    markersRef.current.forEach((marker, i) => {
+      const t = THREE.MathUtils.degToRad(newMarkerAngles[i]);
+      marker.position.set(RADIUS * Math.cos(t), 0, RADIUS * Math.sin(t));
+    });
+
+    // 3. Update "paper" planes
+    if (paperLeftRef.current) {
+      paperLeftRef.current.geometry.dispose();
+      paperLeftRef.current.geometry = new THREE.CircleGeometry(
+        intersectionRadius,
+        64
+      );
+      paperLeftRef.current.position.z = -planeZ;
+    }
+    if (paperRightRef.current) {
+      paperRightRef.current.geometry.dispose();
+      paperRightRef.current.geometry = new THREE.CircleGeometry(
+        intersectionRadius,
+        64
+      );
+      paperRightRef.current.position.z = planeZ;
+    }
+
+    // 4. Update sphere caps
+    const capAngle = Math.PI / 2 - angleRad;
+    if (capLeftRef.current) {
+      capLeftRef.current.geometry.dispose();
+      capLeftRef.current.geometry = new THREE.SphereGeometry(
+        RADIUS,
+        64,
+        32,
+        0,
+        Math.PI * 2,
+        0,
+        capAngle
+      );
+    }
+    if (capRightRef.current) {
+      capRightRef.current.geometry.dispose();
+      capRightRef.current.geometry = new THREE.SphereGeometry(
+        RADIUS,
+        64,
+        32,
+        0,
+        Math.PI * 2,
+        0,
+        capAngle
+      );
+    }
+
+    // 5. Update intersection dots and lines
+    let dotIndex = 0;
+    let lineIndex = 0;
+    [planeZ, -planeZ].forEach((z) => {
+      const positions = {
+        meridianTop: new THREE.Vector3(0, intersectionRadius, z),
+        meridianBottom: new THREE.Vector3(0, -intersectionRadius, z),
+        equatorRight: new THREE.Vector3(intersectionRadius, 0, z),
+        equatorLeft: new THREE.Vector3(-intersectionRadius, 0, z),
+        center: new THREE.Vector3(0, 0, z),
+      };
+
+      // Dots
+      intersectionDotsRef.current[dotIndex++].position.copy(
+        positions.meridianTop
+      );
+      intersectionDotsRef.current[dotIndex++].position.copy(
+        positions.meridianBottom
+      );
+      intersectionDotsRef.current[dotIndex++].position.copy(
+        positions.equatorRight
+      );
+      intersectionDotsRef.current[dotIndex++].position.copy(
+        positions.equatorLeft
+      );
+      intersectionDotsRef.current[dotIndex++].position.copy(positions.center);
+
+      // Lines
+      const meridianLine = intersectionLinesRef.current[lineIndex++];
+      const meridianPositions = meridianLine.geometry.attributes.position;
+      meridianPositions.setXYZ(
+        0,
+        positions.meridianTop.x,
+        positions.meridianTop.y,
+        positions.meridianTop.z
+      );
+      meridianPositions.setXYZ(
+        1,
+        positions.meridianBottom.x,
+        positions.meridianBottom.y,
+        positions.meridianBottom.z
+      );
+      meridianPositions.needsUpdate = true;
+      meridianLine.computeLineDistances();
+
+      const equatorLine = intersectionLinesRef.current[lineIndex++];
+      const equatorPositions = equatorLine.geometry.attributes.position;
+      equatorPositions.setXYZ(
+        0,
+        positions.equatorRight.x,
+        positions.equatorRight.y,
+        positions.equatorRight.z
+      );
+      equatorPositions.setXYZ(
+        1,
+        positions.equatorLeft.x,
+        positions.equatorLeft.y,
+        positions.equatorLeft.z
+      );
+      equatorPositions.needsUpdate = true;
+      equatorLine.computeLineDistances();
+    });
+  }, [contactAngleDeg]);
+
   // ---------- Actions ----------
   // Quaternion-based local rotations (right-hand rule)
   const rotateBy = (axis: "x" | "y" | "z", sign: 1 | -1) => {
@@ -977,6 +1108,20 @@ export default function FaceGlobeV15() {
     }
     const q = new THREE.Quaternion().setFromAxisAngle(v, rad);
     g.quaternion.multiply(q); // local rotation
+  };
+
+  const changeArcLength = (sign: 1 | -1) => {
+    setArcLengthScale((prev) => {
+      const next = prev + arcStepPercent * sign;
+      return Math.max(0, Math.min(200, next));
+    });
+  };
+
+  const changeContactAngle = (sign: 1 | -1) => {
+    setContactAngleDeg((prev) => {
+      const next = prev + contactAngleStep * sign;
+      return Math.max(0.1, Math.min(89.9, next));
+    });
   };
 
   // uniform random orientation with front-facing constraint
@@ -1022,6 +1167,12 @@ export default function FaceGlobeV15() {
       controls.reset(); // restores camera position/target/zoom
       controls.update();
     }
+  };
+
+  const resetAll = () => {
+    resetOrientation();
+    setArcLengthScale(100);
+    setContactAngleDeg(33.56);
   };
 
   // ---------- UI ----------
@@ -1151,7 +1302,140 @@ export default function FaceGlobeV15() {
             </div>
 
             <div className="border-t border-neutral-800/30 pt-2 mt-2">
-              <div className={`text-xs mb-1 ${subtleText}`}>精密回転 (度)</div>
+              <div className="flex justify-between items-center mb-1">
+                <div className={`text-xs ${subtleText}`}>垂線の長さ (%)</div>
+                <button
+                  onClick={() => setArcLengthScale(100)}
+                  className={chip(dark)}
+                  title="垂線の長さを100%に戻す"
+                >
+                  リセット
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={arcStepPercent}
+                  min={1}
+                  step={1}
+                  onChange={(e) =>
+                    setArcStepPercent(
+                      Math.max(1, parseInt(e.target.value) || 1)
+                    )
+                  }
+                  className={`w-20 border rounded px-2 py-1 text-right ${
+                    dark
+                      ? "bg-neutral-900 border-neutral-700 text-neutral-100"
+                      : "bg-white border-neutral-300"
+                  }`}
+                  title="1クリックあたりの長さ変化率(%)"
+                />
+                <div className="flex gap-1">
+                  {[1, 5, 15].map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setArcStepPercent(v)}
+                      className={chip(dark)}
+                    >
+                      {v}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+                <button
+                  onClick={() => changeArcLength(-1)}
+                  className={btn(dark)}
+                >
+                  −
+                </button>
+                <div
+                  className={`flex items-center justify-center ${subtleText} font-mono`}
+                >
+                  {arcLengthScale}%
+                </div>
+                <button
+                  onClick={() => changeArcLength(1)}
+                  className={btn(dark)}
+                >
+                  ＋
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-neutral-800/30 pt-2 mt-2">
+              <div className="flex justify-between items-center mb-1">
+                <div className={`text-xs ${subtleText}`}>紙の角度 (度)</div>
+                <button
+                  onClick={() => setContactAngleDeg(33.56)}
+                  className={chip(dark)}
+                  title="紙の角度を33.56°に戻す"
+                >
+                  リセット
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={contactAngleStep}
+                  min={0.1}
+                  step={0.1}
+                  onChange={(e) =>
+                    setContactAngleStep(
+                      Math.max(0.1, parseFloat(e.target.value) || 0.1)
+                    )
+                  }
+                  className={`w-20 border rounded px-2 py-1 text-right ${
+                    dark
+                      ? "bg-neutral-900 border-neutral-700 text-neutral-100"
+                      : "bg-white border-neutral-300"
+                  }`}
+                  title="1クリックあたりの角度変化(度)"
+                />
+                <div className="flex gap-1">
+                  {[1, 5, 15].map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setContactAngleStep(v)}
+                      className={chip(dark)}
+                    >
+                      {v}°
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+                <button
+                  onClick={() => changeContactAngle(-1)}
+                  className={btn(dark)}
+                >
+                  −
+                </button>
+                <div
+                  className={`flex items-center justify-center ${subtleText} font-mono`}
+                >
+                  {contactAngleDeg.toFixed(2)}°
+                </div>
+                <button
+                  onClick={() => changeContactAngle(1)}
+                  className={btn(dark)}
+                >
+                  ＋
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-neutral-800/30 pt-2 mt-2">
+              <div className="flex justify-between items-center mb-1">
+                <div className={`text-xs ${subtleText}`}>精密回転 (度)</div>
+                <button
+                  onClick={resetOrientation}
+                  className={chip(dark)}
+                  title="初期化時の姿勢とカメラに戻す"
+                >
+                  位置リセット
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
@@ -1222,8 +1506,10 @@ export default function FaceGlobeV15() {
                   ＋
                 </button>
               </div>
+            </div>
 
-              <div className="mt-3 flex gap-2 flex-wrap">
+            <div className="border-t border-neutral-800/30 pt-2 mt-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={randomFrontRotation}
                   className={`px-3 py-1.5 rounded-lg ${
@@ -1232,18 +1518,18 @@ export default function FaceGlobeV15() {
                       : "bg-neutral-100 hover:bg-neutral-200 text-neutral-900"
                   }`}
                 >
-                  ランダム(前向き維持)
+                  ランダム
                 </button>
                 <button
-                  onClick={resetOrientation}
+                  onClick={resetAll}
                   className={`px-3 py-1.5 rounded-lg ${
                     dark
                       ? "bg-neutral-800 hover:bg-neutral-700 text-neutral-100"
                       : "bg-neutral-100 hover:bg-neutral-200 text-neutral-900"
                   }`}
-                  title="初期化時の姿勢とカメラに戻す"
+                  title="姿勢、垂線の長さ、紙の角度を初期値に戻す"
                 >
-                  位置リセット
+                  全てリセット
                 </button>
               </div>
             </div>
