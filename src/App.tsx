@@ -206,24 +206,24 @@ export default function FaceGlobeV15() {
 
     // Spin axis (Y) — GREEN
     const axisColor = COLORS.axisY;
-    const axisTotal = RADIUS * 2.6;
-    const ext = (axisTotal - 2 * RADIUS) / 2;
-    const cap = (y0: number, y1: number) => {
-      const g = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, y0, 0),
-        new THREE.Vector3(0, y1, 0),
-      ]);
-      const m = new THREE.LineBasicMaterial({
-        color: axisColor,
-        transparent: true,
-        opacity: 0.95,
-      });
-      const l = new THREE.Line(g, m);
-      globe.add(l);
-      return { g, m, l };
-    };
-    const capTop = cap(RADIUS, RADIUS + ext);
-    const capBot = cap(-RADIUS - ext, -RADIUS);
+    // const axisTotal = RADIUS * 2.6;
+    // const ext = (axisTotal - 2 * RADIUS) / 2;
+    // const cap = (y0: number, y1: number) => {
+    //   const g = new THREE.BufferGeometry().setFromPoints([
+    //     new THREE.Vector3(0, y0, 0),
+    //     new THREE.Vector3(0, y1, 0),
+    //   ]);
+    //   const m = new THREE.LineBasicMaterial({
+    //     color: axisColor,
+    //     transparent: true,
+    //     opacity: 0.95,
+    //   });
+    //   const l = new THREE.Line(g, m);
+    //   globe.add(l);
+    //   return { g, m, l };
+    // };
+    // const capTop = cap(RADIUS, RADIUS + ext);
+    // const capBot = cap(-RADIUS - ext, -RADIUS);
 
     const innerAxisGeom = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, -RADIUS, 0),
@@ -416,25 +416,25 @@ export default function FaceGlobeV15() {
 
     // 90度/270度を結ぶ新しいZ軸を青色で追加
     const zAxisColor = COLORS.gizmoZ;
-    const zAxisTotal = RADIUS * 2.6;
-    const zExt = (zAxisTotal - 2 * RADIUS) / 2;
+    // const zAxisTotal = RADIUS * 2.6;
+    // const zExt = (zAxisTotal - 2 * RADIUS) / 2;
 
-    const capZ = (z0: number, z1: number) => {
-      const g = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, z0),
-        new THREE.Vector3(0, 0, z1),
-      ]);
-      const m = new THREE.LineBasicMaterial({
-        color: zAxisColor,
-        transparent: true,
-        opacity: 0.95,
-      });
-      const l = new THREE.Line(g, m);
-      globe.add(l);
-      return { g, m, l };
-    };
-    const capZPos = capZ(RADIUS, RADIUS + zExt);
-    const capZNeg = capZ(-RADIUS - zExt, -RADIUS);
+    // const capZ = (z0: number, z1: number) => {
+    //   const g = new THREE.BufferGeometry().setFromPoints([
+    //     new THREE.Vector3(0, 0, z0),
+    //     new THREE.Vector3(0, 0, z1),
+    //   ]);
+    //   const m = new THREE.LineBasicMaterial({
+    //     color: zAxisColor,
+    //     transparent: true,
+    //     opacity: 0.95,
+    //   });
+    //   const l = new THREE.Line(g, m);
+    //   globe.add(l);
+    //   return { g, m, l };
+    // };
+    // const capZPos = capZ(RADIUS, RADIUS + zExt);
+    // const capZNeg = capZ(-RADIUS - zExt, -RADIUS);
 
     const innerAxisZGeom = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, -RADIUS),
@@ -469,25 +469,25 @@ export default function FaceGlobeV15() {
 
     // --- 0度/180度を結ぶX軸を追加 ---
     const xAxisColor = COLORS.equatorX;
-    const xAxisTotal = RADIUS * 2.6;
-    const xExt = (xAxisTotal - 2 * RADIUS) / 2;
+    // const xAxisTotal = RADIUS * 2.6;
+    // const xExt = (xAxisTotal - 2 * RADIUS) / 2;
 
-    const capX = (x0: number, x1: number) => {
-      const g = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x0, 0, 0),
-        new THREE.Vector3(x1, 0, 0),
-      ]);
-      const m = new THREE.LineBasicMaterial({
-        color: xAxisColor,
-        transparent: true,
-        opacity: 0.95,
-      });
-      const l = new THREE.Line(g, m);
-      globe.add(l);
-      return { g, m, l };
-    };
-    const capXPos = capX(RADIUS, RADIUS + xExt);
-    const capXNeg = capX(-RADIUS - xExt, -RADIUS);
+    // const capX = (x0: number, x1: number) => {
+    //   const g = new THREE.BufferGeometry().setFromPoints([
+    //     new THREE.Vector3(x0, 0, 0),
+    //     new THREE.Vector3(x1, 0, 0),
+    //   ]);
+    //   const m = new THREE.LineBasicMaterial({
+    //     color: xAxisColor,
+    //     transparent: true,
+    //     opacity: 0.95,
+    //   });
+    //   const l = new THREE.Line(g, m);
+    //   globe.add(l);
+    //   return { g, m, l };
+    // };
+    // const capXPos = capX(RADIUS, RADIUS + xExt);
+    // const capXNeg = capX(-RADIUS - xExt, -RADIUS);
 
     const innerAxisXGeom = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(-RADIUS, 0, 0),
