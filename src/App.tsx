@@ -95,6 +95,7 @@ export default function FaceGlobeV15() {
   const eqMatRef = useRef<THREE.LineBasicMaterial | null>(null);
   const whiteDotMatRef = useRef<THREE.MeshBasicMaterial | null>(null);
   const perpendicularMatRef = useRef<THREE.LineBasicMaterial | null>(null);
+  const parallelLineMatRef = useRef<THREE.LineDashedMaterial | null>(null); // Refs for dynamic objects
 
   // Refs for dynamic objects
   const perpendicularLineRef = useRef<THREE.Line | null>(null);
@@ -114,6 +115,10 @@ export default function FaceGlobeV15() {
   const capRightRef = useRef<THREE.Mesh | null>(null);
   const intersectionDotsRef = useRef<THREE.Mesh[]>([]);
   const intersectionLinesRef = useRef<THREE.Line[]>([]);
+  const yzPaperRef = useRef<THREE.Mesh | null>(null);
+  const yzIntersectionLineRef = useRef<THREE.Line | null>(null);
+  const intersectionEquatorPointsRef = useRef<THREE.Mesh[]>([]);
+  const parallelLinesRef = useRef<THREE.Line[]>([]); // OrbitControls
 
   // OrbitControls
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -134,6 +139,8 @@ export default function FaceGlobeV15() {
   const [arcStepPercent, setArcStepPercent] = useState(5);
   const [contactAngleDeg, setContactAngleDeg] = useState(33.56);
   const [contactAngleStep, setContactAngleStep] = useState(1);
+  const [intersectionAngleDeg, setIntersectionAngleDeg] = useState(30);
+  const [intersectionAngleStep, setIntersectionAngleStep] = useState(1);
   const gizmoModeRef = useRef<"object" | "world">(gizmoMode);
   useEffect(() => {
     gizmoModeRef.current = gizmoMode;
@@ -607,6 +614,64 @@ export default function FaceGlobeV15() {
     globe.add(quarterPointRef.current);
     // --- ここまで追加 ---
 
+    const yzPaperGeo = new THREE.PlaneGeometry(RADIUS * 2, RADIUS * 2);
+    const yzPaperMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.2,
+      depthTest: false,
+    });
+    const yzPaper = new THREE.Mesh(yzPaperGeo, yzPaperMat);
+    yzPaper.rotation.y = Math.PI / 2; // YZ平面と平行になるように回転
+    yzPaper.visible = false;
+    yzPaper.renderOrder = 0;
+    globe.add(yzPaper);
+    yzPaperRef.current = yzPaper;
+
+    const yzIntersectionLineMat = new THREE.LineDashedMaterial({
+      color: 0xffffff,
+      dashSize: 0.08,
+      gapSize: 0.04,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const yzIntersectionLineGeo = new THREE.BufferGeometry();
+    const yzIntersectionLine = new THREE.Line(
+      yzIntersectionLineGeo,
+      yzIntersectionLineMat
+    );
+    yzIntersectionLine.renderOrder = 5;
+    globe.add(yzIntersectionLine);
+    yzIntersectionLineRef.current = yzIntersectionLine; // 交点と平行線のオブジェクトを初期化
+
+    for (let i = 0; i < 2; i++) {
+      const point = new THREE.Mesh(whiteDotGeo.clone(), whiteDotMat);
+      point.renderOrder = 7;
+      globe.add(point);
+      intersectionEquatorPointsRef.current.push(point);
+    }
+
+    const parallelLineMat = new THREE.LineDashedMaterial({
+      color: 0xffffff,
+      dashSize: 0.08,
+      gapSize: 0.04,
+      depthTest: false,
+    });
+    parallelLineMatRef.current = parallelLineMat;
+
+    for (let i = 0; i < 2; i++) {
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+      ]);
+      const line = new THREE.Line(lineGeo, parallelLineMat);
+      line.renderOrder = 4;
+      globe.add(line);
+      parallelLinesRef.current.push(line);
+    }
+
     // Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -883,6 +948,11 @@ export default function FaceGlobeV15() {
       );
     }
     // Sync page background/text with theme to avoid white below canvas
+    if (parallelLineMatRef.current) {
+      parallelLineMatRef.current.color.set(
+        isDark ? 0xffffff : COLORS.gridLight
+      );
+    }
     const body = document.body;
     body.classList.add("min-h-screen", "antialiased");
     body.classList.remove(
@@ -895,6 +965,20 @@ export default function FaceGlobeV15() {
       body.classList.add("bg-neutral-950", "text-neutral-100");
     } else {
       body.classList.add("bg-neutral-50", "text-neutral-900");
+    }
+  }, [dark]);
+
+  useEffect(() => {
+    const isDark = dark;
+    if (yzIntersectionLineRef.current) {
+      (
+        yzIntersectionLineRef.current.material as THREE.LineDashedMaterial
+      ).color.set(isDark ? 0xffffff : COLORS.gridLight);
+    }
+    if (yzPaperRef.current) {
+      (yzPaperRef.current.material as THREE.MeshBasicMaterial).color.set(
+        isDark ? 0xffffff : 0x404040
+      );
     }
   }, [dark]);
 
@@ -1094,6 +1178,64 @@ export default function FaceGlobeV15() {
 
   // ---------- Actions ----------
   // Quaternion-based local rotations (right-hand rule)
+  useEffect(() => {
+    if (
+      !yzPaperRef.current ||
+      !yzIntersectionLineRef.current ||
+      intersectionEquatorPointsRef.current.length === 0 ||
+      parallelLinesRef.current.length === 0
+    ) {
+      return;
+    }
+
+    const angleRad = THREE.MathUtils.degToRad(intersectionAngleDeg);
+    const lineRadius = RADIUS * SURFACE_OFFSET; // 1. X軸に沿った平面のオフセットを計算 (0deg at Y-axis -> x=0, 90deg at X-axis -> x=R)
+
+    const planeX = lineRadius * Math.sin(angleRad); // 2. 交差する円の半径を計算
+
+    const intersectionRadius = lineRadius * Math.cos(angleRad); // 3. (非表示の) 平面オブジェクトの位置を更新
+
+    if (yzPaperRef.current) {
+      yzPaperRef.current.position.x = RADIUS * Math.sin(angleRad);
+    } // 4. 交線のジオメトリを更新
+
+    if (yzIntersectionLineRef.current) {
+      const line = yzIntersectionLineRef.current;
+      const pts: THREE.Vector3[] = []; // x = planeX 平面上に上半分の円（弧）を描画
+
+      for (let i = 0; i <= SEGMENTS / 2; i++) {
+        const t = (i / (SEGMENTS / 2) - 0.5) * Math.PI; // -PI/2 to PI/2
+        const y = intersectionRadius * Math.cos(t);
+        const z = intersectionRadius * Math.sin(t);
+        pts.push(new THREE.Vector3(planeX, y, z));
+      }
+
+      if (line.geometry) {
+        line.geometry.dispose();
+      }
+      line.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+      line.computeLineDistances();
+    } // 5. 赤道との交点と平行線を更新
+
+    const pointZ = intersectionRadius; // 交点
+
+    intersectionEquatorPointsRef.current[0].position.set(planeX, 0, pointZ);
+    intersectionEquatorPointsRef.current[1].position.set(planeX, 0, -pointZ); // 下半分の平行線
+
+    const intersectionPointsZ = [pointZ, -pointZ];
+    intersectionPointsZ.forEach((z, index) => {
+      const line = parallelLinesRef.current[index];
+      const start = new THREE.Vector3(planeX, 0, z);
+      const endDown = new THREE.Vector3(planeX, -RADIUS, z);
+
+      const positions = line.geometry.attributes.position;
+      positions.setXYZ(0, start.x, start.y, start.z);
+      positions.setXYZ(1, endDown.x, endDown.y, endDown.z);
+      positions.needsUpdate = true;
+      line.computeLineDistances();
+    });
+  }, [intersectionAngleDeg]);
+
   const rotateBy = (axis: "x" | "y" | "z", sign: 1 | -1) => {
     const g = globeRef.current;
     if (!g) return;
@@ -1125,6 +1267,13 @@ export default function FaceGlobeV15() {
   };
 
   // uniform random orientation with front-facing constraint
+  const changeIntersectionAngle = (sign: 1 | -1) => {
+    setIntersectionAngleDeg((prev) => {
+      const next = prev + intersectionAngleStep * sign;
+      return Math.max(0, Math.min(90, next));
+    });
+  };
+
   const randomFrontRotation = () => {
     const g = globeRef.current,
       cam = cameraRef.current;
@@ -1173,6 +1322,7 @@ export default function FaceGlobeV15() {
     resetOrientation();
     setArcLengthScale(100);
     setContactAngleDeg(33.56);
+    setIntersectionAngleDeg(30);
   };
 
   // ---------- UI ----------
@@ -1287,7 +1437,6 @@ export default function FaceGlobeV15() {
               <li>ドラッグ: 自由回転(360°)</li>
               <li>ホイール: ズーム</li>
             </ul>
-
             {/* Angle HUD */}
             <div className={`mt-2 text-xs ${subtleText} font-mono`}>
               <div className="flex items-center gap-3">
@@ -1300,7 +1449,6 @@ export default function FaceGlobeV15() {
                 <span>Z: {angles.z.toFixed(1)}°</span>
               </div>
             </div>
-
             <div className="border-t border-neutral-800/30 pt-2 mt-2">
               <div className="flex justify-between items-center mb-1">
                 <div className={`text-xs ${subtleText}`}>垂線の長さ (%)</div>
@@ -1362,7 +1510,6 @@ export default function FaceGlobeV15() {
                 </button>
               </div>
             </div>
-
             <div className="border-t border-neutral-800/30 pt-2 mt-2">
               <div className="flex justify-between items-center mb-1">
                 <div className={`text-xs ${subtleText}`}>紙の角度 (度)</div>
@@ -1424,7 +1571,67 @@ export default function FaceGlobeV15() {
                 </button>
               </div>
             </div>
-
+            <div className="border-t border-neutral-800/30 pt-2 mt-2">
+              <div className="flex justify-between items-center mb-1">
+                <div className={`text-xs ${subtleText}`}>交線の角度 (度)</div>
+                <button
+                  onClick={() => setIntersectionAngleDeg(30)}
+                  className={chip(dark)}
+                  title="交線の角度を30°に戻す"
+                >
+                  リセット
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={intersectionAngleStep}
+                  min={0.1}
+                  step={0.1}
+                  onChange={(e) =>
+                    setIntersectionAngleStep(
+                      Math.max(0.1, parseFloat(e.target.value) || 0.1)
+                    )
+                  }
+                  className={`w-20 border rounded px-2 py-1 text-right ${
+                    dark
+                      ? "bg-neutral-900 border-neutral-700 text-neutral-100"
+                      : "bg-white border-neutral-300"
+                  }`}
+                  title="1クリックあたりの角度変化(度)"
+                />
+                <div className="flex gap-1">
+                  {[1, 5, 15].map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setIntersectionAngleStep(v)}
+                      className={chip(dark)}
+                    >
+                      {v}°
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+                <button
+                  onClick={() => changeIntersectionAngle(-1)}
+                  className={btn(dark)}
+                >
+                  −
+                </button>
+                <div
+                  className={`flex items-center justify-center ${subtleText} font-mono`}
+                >
+                  {intersectionAngleDeg.toFixed(2)}°
+                </div>
+                <button
+                  onClick={() => changeIntersectionAngle(1)}
+                  className={btn(dark)}
+                >
+                  ＋
+                </button>
+              </div>
+            </div>
             <div className="border-t border-neutral-800/30 pt-2 mt-2">
               <div className="flex justify-between items-center mb-1">
                 <div className={`text-xs ${subtleText}`}>精密回転 (度)</div>
@@ -1464,7 +1671,6 @@ export default function FaceGlobeV15() {
                   ))}
                 </div>
               </div>
-
               {/* XYZ order; left = minus, right = plus */}
               <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
                 {/* X */}
@@ -1507,7 +1713,6 @@ export default function FaceGlobeV15() {
                 </button>
               </div>
             </div>
-
             <div className="border-t border-neutral-800/30 pt-2 mt-2">
               <div className="flex gap-2 flex-wrap">
                 <button
@@ -1533,7 +1738,6 @@ export default function FaceGlobeV15() {
                 </button>
               </div>
             </div>
-
             <div className={`mt-1 text-xs ${subtleText}`}>
               <span
                 className="inline-block w-3 h-3 align-middle mr-1 rounded-full"
